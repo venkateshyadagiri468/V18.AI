@@ -27,7 +27,9 @@ const TOOL_ICONS = {
 };
 
 export default function ToolCallCard({ toolName, args, result, durationMs, isRunning = false }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : false
+  );
   const [activeTab, setActiveTab] = useState('observation'); // 'observation' | 'parameters'
   const [copied, setCopied] = useState(false);
 

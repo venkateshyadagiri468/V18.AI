@@ -44,12 +44,18 @@ function FormattedMessage({ text }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      if (text) {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch {
+      // fallback
+    }
   };
 
-  const lines = text.split('\n');
+  const lines = (text || '').split('\n');
 
   return (
     <div className="relative group/msg w-full">
@@ -86,6 +92,9 @@ function FormattedMessage({ text }) {
               </li>
             );
           }
+          if (line.trim() === '---') {
+            return <hr key={idx} className="border-zinc-800 my-2" />;
+          }
           if (line.trim() === '') {
             return <div key={idx} className="h-1.5 sm:h-2" />;
           }
@@ -99,6 +108,7 @@ function FormattedMessage({ text }) {
 }
 
 function formatInline(str) {
+  if (!str) return '';
   return str
     .replace(/\*\*(.*?)\*\*/g, '<strong class="text-zinc-100 font-semibold">$1</strong>')
     .replace(/\*(.*?)\*/g, '<em class="text-zinc-300">$1</em>')
@@ -114,11 +124,14 @@ export default function ChatArea({
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const timer = setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+    return () => clearTimeout(timer);
   }, [messages, activeTask]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-2.5 sm:px-4 py-4 sm:py-8 pb-32 sm:pb-40 flex flex-col items-center w-full min-w-0">
+    <div className="flex-1 min-h-0 overflow-y-auto px-2.5 sm:px-4 py-4 sm:py-6 pb-6 flex flex-col items-center w-full min-w-0">
       <div className="w-full max-w-3xl flex flex-col gap-4 sm:gap-6 min-w-0">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center text-center my-auto py-6 sm:py-12 gap-4 sm:gap-5 select-none w-full">

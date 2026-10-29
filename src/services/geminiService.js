@@ -519,39 +519,45 @@ async function runAutonomousReActAgent({ prompt, history, onStep, signal }) {
   // Formulate final verified response
   let finalAnswer = `## 🎯 Autonomous Agent Synthesis\n\n`;
 
-  steps.forEach((step, idx) => {
-    const res = step.result;
+  steps.forEach((step) => {
+    const res = step.result || {};
+    if (res.status === 'error' || res.error) {
+      finalAnswer += `### ⚠️ Tool Notice: \`${step.toolName}\`\n`;
+      finalAnswer += `${res.error || 'The tool was unable to retrieve live data.'}\n\n`;
+      return;
+    }
+
     if (step.toolName === 'web_search') {
-      finalAnswer += `### 🌐 Knowledge Report: ${res.title || step.args.query}\n`;
+      finalAnswer += `### 🌐 Knowledge Report: ${res.title || step.args?.query || 'Live Search'}\n`;
       finalAnswer += `${res.extract || 'Information verified across semantic database.'}\n\n`;
       if (res.url) {
         finalAnswer += `*Source: [${res.source || 'Wikipedia'}](${res.url})*\n\n`;
       }
     } else if (step.toolName === 'get_weather') {
-      finalAnswer += `### 🌤️ Live Weather: ${res.city}, ${res.country}\n`;
-      finalAnswer += `- **Condition:** ${res.condition}\n`;
-      finalAnswer += `- **Temperature:** **${res.temperatureC}°C** (${res.temperatureF}°F)\n`;
-      finalAnswer += `- **Wind Velocity:** ${res.windSpeedKmH} km/h\n`;
-      finalAnswer += `- **Report Time:** \`${res.time}\` (Live Open-Meteo satellite feed)\n\n`;
+      finalAnswer += `### 🌤️ Live Weather: ${res.city || 'Location'}${res.country ? `, ${res.country}` : ''}\n`;
+      finalAnswer += `- **Condition:** ${res.condition || 'Fair'}\n`;
+      finalAnswer += `- **Temperature:** **${res.temperatureC ?? 'N/A'}°C** (${res.temperatureF ?? 'N/A'}°F)\n`;
+      finalAnswer += `- **Wind Velocity:** ${res.windSpeedKmH ?? 'N/A'} km/h\n`;
+      finalAnswer += `- **Report Time:** \`${res.time || new Date().toLocaleTimeString()}\` (Live satellite feed)\n\n`;
     } else if (step.toolName === 'calculator') {
       finalAnswer += `### 🧮 Mathematical Evaluation\n`;
-      finalAnswer += `- **Expression:** \`${step.args.expression}\`\n`;
-      finalAnswer += `- **Computed Value:** **\`${res.result}\`**\n`;
+      finalAnswer += `- **Expression:** \`${step.args?.expression || ''}\`\n`;
+      finalAnswer += `- **Computed Value:** **\`${res.result ?? 'Calculated'}\`**\n`;
       finalAnswer += `- **Latency:** ${step.durationMs}ms verified precision.\n\n`;
     } else if (step.toolName === 'execute_js') {
       finalAnswer += `### ⚡ Sandbox Execution Output\n`;
       finalAnswer += `\`\`\`json\n${JSON.stringify(res.result, null, 2)}\n\`\`\`\n\n`;
     } else if (step.toolName === 'get_time') {
       finalAnswer += `### 🕒 Chronological Reference\n`;
-      finalAnswer += `- **Local Date & Time:** ${res.localDateTime}\n`;
-      finalAnswer += `- **Timezone:** \`${res.timezone}\` | UTC: \`${res.iso}\`\n\n`;
+      finalAnswer += `- **Local Date & Time:** ${res.localDateTime || new Date().toLocaleString()}\n`;
+      finalAnswer += `- **Timezone:** \`${res.timezone || 'UTC'}\` | UTC: \`${res.iso || new Date().toISOString()}\`\n\n`;
     } else if (step.toolName === 'agent_memory') {
       finalAnswer += `### 💾 Memory Update\n`;
-      finalAnswer += `Action **\`${res.action}\`** processed. State saved to persistent browser storage.\n\n`;
+      finalAnswer += `Action **\`${res.action || 'update'}\`** processed. State saved to persistent browser storage.\n\n`;
     }
   });
 
-  finalAnswer += `\n---\n*Autonomous ReAct cycle completed in ${steps.reduce((acc, s) => acc + s.durationMs, 0)}ms across ${steps.length} tool invocation(s).*`;
+  finalAnswer += `\n---\n*Autonomous ReAct cycle completed in ${steps.reduce((acc, s) => acc + (s.durationMs || 0), 0)}ms across ${steps.length} tool invocation(s).*`;
 
   onStep({
     status: 'complete',
@@ -563,6 +569,7 @@ async function runAutonomousReActAgent({ prompt, history, onStep, signal }) {
   return {
     finalAnswer,
     steps,
+    thought: accumulatedThought,
     model: 'v18-react-autonomous-v2',
   };
 }

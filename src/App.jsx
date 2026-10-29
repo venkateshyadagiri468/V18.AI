@@ -182,7 +182,7 @@ export default function App() {
         id: generateId(),
         role: 'assistant',
         content: result.finalAnswer,
-        thought: activeTask?.thought || '',
+        thought: result.thought || activeTask?.thought || '',
         steps: result.steps || [],
         timestamp: new Date().toISOString(),
       };
