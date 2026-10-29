@@ -56,7 +56,9 @@ export default function App() {
   });
 
   const [activeSessionId, setActiveSessionId] = useState(() => sessions[0]?.id);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : false
+  );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [input, setInput] = useState('');
 
@@ -267,7 +269,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-zinc-950 text-zinc-100 overflow-hidden relative font-sans">
+    <div className="flex h-screen h-[100dvh] w-full max-w-[100vw] bg-zinc-950 text-zinc-100 overflow-hidden relative font-sans">
       <div className="absolute inset-0 bg-mesh pointer-events-none z-0" />
       <div className="absolute inset-0 grid-pattern pointer-events-none z-0" />
 
@@ -283,7 +285,7 @@ export default function App() {
       />
 
       {/* Main Workspace */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative z-10 min-w-0">
         <Header
           agentState={agentState}
           provider={config.provider}

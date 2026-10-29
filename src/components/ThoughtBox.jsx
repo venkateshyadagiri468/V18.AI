@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, Brain, Sparkles } from 'lucide-react';
-import { cn } from '../lib/utils';
 
 export default function ThoughtBox({ thought, isLive = false }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -12,23 +11,23 @@ export default function ThoughtBox({ thought, isLive = false }) {
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-3 py-2 flex items-center justify-between text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30 transition-colors select-none"
+        className="w-full px-2.5 sm:px-3 py-2 flex items-center justify-between text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/30 transition-colors select-none gap-2"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {isLive ? (
-            <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />
           ) : (
-            <Brain className="w-3.5 h-3.5 text-zinc-400" />
+            <Brain className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
           )}
-          <span className="font-medium text-zinc-300">
+          <span className="font-medium text-zinc-300 truncate">
             {isLive ? 'Reasoning chain (in progress)...' : 'Thought Process'}
           </span>
           {isLive && (
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping flex-shrink-0" />
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 text-zinc-500 text-[11px]">
+        <div className="flex items-center gap-1.5 text-zinc-500 text-[10px] sm:text-[11px] flex-shrink-0">
           <span>{isExpanded ? 'Collapse' : 'Inspect'}</span>
           {isExpanded ? (
             <ChevronDown className="w-3.5 h-3.5" />
@@ -39,8 +38,8 @@ export default function ThoughtBox({ thought, isLive = false }) {
       </button>
 
       {isExpanded && (
-        <div className="px-3 py-2.5 border-t border-zinc-800/60 bg-zinc-950/60">
-          <div className="pl-3 border-l-2 border-amber-500/30 font-mono text-[11px] leading-relaxed text-zinc-400 whitespace-pre-wrap">
+        <div className="px-2.5 sm:px-3 py-2 sm:py-2.5 border-t border-zinc-800/60 bg-zinc-950/60">
+          <div className="pl-2.5 sm:pl-3 border-l-2 border-amber-500/30 font-mono text-[10px] sm:text-[11px] leading-relaxed text-zinc-400 whitespace-pre-wrap break-words overflow-x-auto">
             {thought}
           </div>
         </div>

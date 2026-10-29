@@ -37,7 +37,18 @@
     font-feature-settings: "rlig" 1, "calt" 1;
     overflow: hidden;
     user-select: text;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
+}
+
+/* Hide scrollbar for clean horizontal pill rows on mobile */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Custom Scrollbar */

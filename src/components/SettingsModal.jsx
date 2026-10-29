@@ -21,7 +21,6 @@ import {
   DialogDescription,
 } from './ui/dialog';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { testModelConnection } from '../services/geminiService';
 
 export default function SettingsModal({
@@ -120,7 +119,7 @@ export default function SettingsModal({
             <select
               value={provider}
               onChange={(e) => handleProviderChange(e.target.value)}
-              className="w-full h-9 rounded-lg bg-zinc-900 border border-zinc-800 px-3 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              className="w-full h-9 rounded-lg bg-zinc-900 border border-zinc-800 px-3 text-base sm:text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-purple-500"
             >
               <option value="autonomous">⚡ Autonomous Multi-Step ReAct Engine (Zero Key Needed)</option>
               <option value="gemini">Google Gemini API (Function Calling & Reasoning)</option>
@@ -131,7 +130,7 @@ export default function SettingsModal({
           {/* API Key Section */}
           {provider !== 'autonomous' && (
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs flex-wrap gap-1">
                 <label className="font-medium text-zinc-300 flex items-center gap-1.5">
                   <Key className="w-3.5 h-3.5 text-cyan-400" />
                   <span>{provider === 'groq' ? 'Groq API Key' : 'Google Gemini API Key'}</span>
@@ -148,7 +147,7 @@ export default function SettingsModal({
               </div>
 
               <div className="flex gap-2">
-                <div className="relative flex-1">
+                <div className="relative flex-1 min-w-0">
                   <input
                     type={showKey ? 'text' : 'password'}
                     value={apiKey}
@@ -157,7 +156,7 @@ export default function SettingsModal({
                       setTestStatus(null);
                     }}
                     placeholder={provider === 'groq' ? 'gsk_...' : 'AIzaSy...'}
-                    className="w-full h-9 rounded-lg bg-zinc-900 border border-zinc-800 px-3 pr-8 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    className="w-full h-9 rounded-lg bg-zinc-900 border border-zinc-800 px-3 pr-8 text-base sm:text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
                   />
                   <button
                     type="button"
@@ -173,7 +172,7 @@ export default function SettingsModal({
                   size="sm"
                   onClick={handleTestKey}
                   disabled={testStatus === 'testing'}
-                  className="text-xs"
+                  className="text-xs h-9 px-3 flex-shrink-0"
                 >
                   {testStatus === 'testing' ? 'Testing...' : 'Verify'}
                 </Button>
@@ -186,11 +185,11 @@ export default function SettingsModal({
                   }`}
                 >
                   {testStatus === 'success' ? (
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
                   ) : (
-                    <AlertCircle className="w-3.5 h-3.5" />
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                   )}
-                  <span>{testMessage}</span>
+                  <span className="break-words">{testMessage}</span>
                 </div>
               )}
             </div>
@@ -206,7 +205,7 @@ export default function SettingsModal({
               value={model}
               onChange={(e) => setModel(e.target.value)}
               disabled={provider === 'autonomous'}
-              className="w-full h-9 rounded-lg bg-zinc-900 border border-zinc-800 px-3 text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
+              className="w-full h-9 rounded-lg bg-zinc-900 border border-zinc-800 px-3 text-base sm:text-xs text-zinc-100 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
             >
               {provider === 'groq' ? (
                 <>
@@ -255,33 +254,33 @@ export default function SettingsModal({
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder="System prompt guiding tool decisions..."
-              className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              className="w-full rounded-lg bg-zinc-900 border border-zinc-800 p-2 text-base sm:text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500"
             />
           </div>
 
           {/* Persistent Memory Manager */}
-          <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+          <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 pt-2 border-t border-zinc-800">
             <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-              <Database className="w-3.5 h-3.5 text-purple-400" />
+              <Database className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
               <span>Persistent Memory Storage</span>
             </div>
             <Button
               variant="outline"
               size="sm"
               onClick={handleClearMemory}
-              className="h-7 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border-rose-500/30"
+              className="h-8 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border-rose-500/30 self-start xs:self-auto"
             >
-              <Trash2 className="w-3 h-3 mr-1" />
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
               Clear Storage
             </Button>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-xs">
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800">
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-xs h-8 px-3">
             Cancel
           </Button>
-          <Button size="sm" onClick={handleSave} className="text-xs">
+          <Button size="sm" onClick={handleSave} className="text-xs h-8 px-3">
             Save Changes
           </Button>
         </div>
