@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { SignedIn, SignedOut } from '@clerk/clerk-react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import InputBox from './components/InputBox';
 import SettingsModal from './components/SettingsModal';
+import V18CinematicAuth from './components/auth/V18CinematicAuth';
 import { runAgentTask } from './services/geminiService';
 import './styles/index.css';
 
@@ -24,7 +26,8 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
 }
 
-export default function App() {
+export default function App({ isClerkActive = false }) {
+  const [isPreviewAuthenticated, setIsPreviewAuthenticated] = useState(false);
   // Configuration stored in localStorage
   const [config, setConfig] = useState(() => {
     try {
@@ -268,7 +271,7 @@ export default function App() {
     setInput(suggestion);
   };
 
-  return (
+  const renderWorkspace = () => (
     <div className="flex h-screen h-[100dvh] w-full max-w-[100vw] bg-zinc-950 text-zinc-100 overflow-hidden relative font-sans">
       <div className="absolute inset-0 bg-mesh pointer-events-none z-0" />
       <div className="absolute inset-0 grid-pattern pointer-events-none z-0" />
@@ -282,6 +285,8 @@ export default function App() {
         onSelectSession={(id) => setActiveSessionId(id)}
         onNewSession={handleNewSession}
         onToolClick={handleToolClick}
+        isClerkActive={isClerkActive}
+        onSignOut={() => setIsPreviewAuthenticated(false)}
       />
 
       {/* Main Workspace */}
@@ -295,6 +300,8 @@ export default function App() {
           onClearChat={handleClearChat}
           onNewSession={handleNewSession}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          isClerkActive={isClerkActive}
+          onSignOut={() => setIsPreviewAuthenticated(false)}
         />
 
         <ChatArea
@@ -321,4 +328,26 @@ export default function App() {
       />
     </div>
   );
+
+  if (isClerkActive) {
+    return (
+      <>
+        <SignedOut>
+          <V18CinematicAuth />
+        </SignedOut>
+        <SignedIn>
+          {renderWorkspace()}
+        </SignedIn>
+      </>
+    );
+  }
+
+  // Developer Preview Mode (when Clerk Publishable Key is not yet populated)
+  if (!isPreviewAuthenticated) {
+    return (
+      <V18CinematicAuth onEnterGuest={() => setIsPreviewAuthenticated(true)} />
+    );
+  }
+
+  return renderWorkspace();
 }

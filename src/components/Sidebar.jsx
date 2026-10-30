@@ -13,7 +13,10 @@ import {
   Zap,
   Trash2,
   HardDrive,
+  LogOut,
+  User,
 } from 'lucide-react';
+import { UserButton } from '@clerk/clerk-react';
 import { Button } from './ui/button';
 import { TOOLS_REGISTRY } from '../tools';
 
@@ -34,6 +37,8 @@ export default function Sidebar({
   onSelectSession,
   onNewSession,
   onToolClick,
+  isClerkActive = false,
+  onSignOut,
 }) {
   const [memoryItems, setMemoryItems] = useState({});
 

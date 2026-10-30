@@ -1,5 +1,6 @@
 import React from 'react';
-import { Bot, Settings, Trash2, Menu, Cpu, Zap, Plus } from 'lucide-react';
+import { Bot, Settings, Trash2, Menu, Cpu, Zap, Plus, LogOut, User } from 'lucide-react';
+import { UserButton } from '@clerk/clerk-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 
@@ -12,6 +13,8 @@ export default function Header({
   onClearChat,
   onNewSession,
   onToggleSidebar,
+  isClerkActive = false,
+  onSignOut,
 }) {
   const getStatusBadge = () => {
     switch (agentState.status) {
@@ -135,6 +138,29 @@ export default function Header({
         >
           <Settings className="w-4 h-4" />
         </Button>
+
+        {/* User Account / Sign Out */}
+        <div className="ml-1 pl-1.5 border-l border-zinc-800 flex items-center">
+          {isClerkActive ? (
+            <UserButton
+              appearance={{
+                elements: {
+                  userButtonAvatarBox: "w-7 h-7 ring-1 ring-white/20 hover:ring-white/50 transition-all",
+                }
+              }}
+            />
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onSignOut}
+              title="Return to V18.AI Cinematic Auth Screen"
+              className="h-8 w-8 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-850"
+            >
+              <LogOut className="w-3.5 h-3.5 text-zinc-400" />
+            </Button>
+          )}
+        </div>
       </div>
     </header>
   );
