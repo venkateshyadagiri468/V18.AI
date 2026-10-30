@@ -333,7 +333,11 @@ export default function App({ isClerkActive = false }) {
     return (
       <>
         <SignedOut>
-          <V18CinematicAuth />
+          {isPreviewAuthenticated ? (
+            renderWorkspace()
+          ) : (
+            <V18CinematicAuth onEnterGuest={() => setIsPreviewAuthenticated(true)} />
+          )}
         </SignedOut>
         <SignedIn>
           {renderWorkspace()}
