@@ -4,10 +4,13 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import './styles/index.css';
 import App from './App.jsx';
 
+const DEFAULT_CLERK_PUBLISHABLE_KEY = 'pk_test_YWRhcHRlZC12aXBlci04MjQuY2xlcmsuYWNjb3VudHMuZGV2JA';
+
 const PUBLISHABLE_KEY = 
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || 
   import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-  (typeof window !== 'undefined' ? localStorage.getItem('v18_clerk_publishable_key') : null);
+  (typeof window !== 'undefined' ? localStorage.getItem('v18_clerk_publishable_key') : null) ||
+  DEFAULT_CLERK_PUBLISHABLE_KEY;
 
 const isClerkKeyValid = Boolean(
   PUBLISHABLE_KEY && 

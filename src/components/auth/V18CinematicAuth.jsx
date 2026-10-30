@@ -65,11 +65,14 @@ class ClerkErrorBoundary extends Component {
  * Supports Live Clerk Authentication (Google OAuth, Sign-In, Sign-Up)
  * and Interactive Cinematic Smoked-Glass Console.
  */
+const DEFAULT_CLERK_PUBLISHABLE_KEY = "pk_test_YWRhcHRlZC12aXBlci04MjQuY2xlcmsuYWNjb3VudHMuZGV2JA";
+
 export default function V18CinematicAuth({ onEnterGuest }) {
   const publishableKey = 
     import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || 
     import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-    (typeof window !== "undefined" ? localStorage.getItem("v18_clerk_publishable_key") : null);
+    (typeof window !== "undefined" ? localStorage.getItem("v18_clerk_publishable_key") : null) ||
+    DEFAULT_CLERK_PUBLISHABLE_KEY;
 
   const isClerkConfigured = Boolean(
     publishableKey && 
