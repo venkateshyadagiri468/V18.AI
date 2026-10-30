@@ -24,8 +24,11 @@ export const TOOLS_REGISTRY = [
         if (!expression || typeof expression !== 'string') {
           return { status: 'error', error: 'Expression is required and must be a string.' };
         }
-        // Sanitize: allow numbers, arithmetic operators, parentheses, decimal, and Math.* methods
-        const cleaned = expression.replace(/[^0-9+\-*/().,%^ Math.PIEabcrtdlqofsinwexp]/gi, '');
+        // Sanitize & translate: allow ^ as power (**), percentages, Math functions
+        let cleaned = expression
+          .replace(/\^/g, '**')
+          .replace(/(\d+(?:\.\d+)?)\s*%/g, '($1/100)')
+          .replace(/[^0-9+\-*/().,%^ Math.PIEabcrtdlqofsinwexp]/gi, '');
         const sanitizedFn = new Function('Math', `return (${cleaned});`);
         const result = sanitizedFn(Math);
         return {
@@ -38,6 +41,118 @@ export const TOOLS_REGISTRY = [
           status: 'error',
           expression,
           error: `Calculation error: ${err.message}`,
+        };
+      }
+    },
+  },
+
+  {
+    name: 'data_analyzer',
+    description: 'Perform advanced statistical analysis, descriptive metrics (mean, median, mode, min, max, standard deviation), sorting, and filtering on datasets and numerical arrays.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        data: {
+          type: 'ARRAY',
+          description: 'Array of numbers to analyze, e.g. [12, 45, 68, 23, 89, 104] or comma-separated values.',
+          items: { type: 'NUMBER' },
+        },
+        operation: {
+          type: 'STRING',
+          description: 'The operation: "summary" (default), "sort_asc", "sort_desc", "filter", "average", "median", or "stats".',
+        },
+        threshold: {
+          type: 'NUMBER',
+          description: 'Optional threshold value for filtering, e.g. 50.',
+        },
+        filterMode: {
+          type: 'STRING',
+          description: 'Optional filter comparison: "gt" (>), "gte" (>=), "lt" (<), "lte" (<=), "eq" (==).',
+        },
+      },
+      required: ['data'],
+    },
+    icon: 'BarChart2',
+    category: 'Data Science',
+    execute: async ({ data, operation = 'summary', threshold, filterMode = 'gt' }) => {
+      try {
+        let nums = [];
+        if (Array.isArray(data)) {
+          nums = data.map(Number).filter((n) => !isNaN(n));
+        } else if (typeof data === 'string') {
+          nums = data.split(/[\s,]+/).map(Number).filter((n) => !isNaN(n));
+        }
+
+        if (nums.length === 0) {
+          return { status: 'error', error: 'No valid numeric data points provided for analysis.' };
+        }
+
+        const count = nums.length;
+        const sum = nums.reduce((a, b) => a + b, 0);
+        const mean = Number((sum / count).toFixed(4));
+
+        const sortedAsc = [...nums].sort((a, b) => a - b);
+        const sortedDesc = [...nums].sort((a, b) => b - a);
+
+        const min = sortedAsc[0];
+        const max = sortedAsc[sortedAsc.length - 1];
+        const range = max - min;
+
+        // Median
+        const mid = Math.floor(sortedAsc.length / 2);
+        const median = sortedAsc.length % 2 !== 0 
+          ? sortedAsc[mid] 
+          : Number(((sortedAsc[mid - 1] + sortedAsc[mid]) / 2).toFixed(4));
+
+        // Variance & Standard Deviation
+        const variance = Number((nums.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / count).toFixed(4));
+        const stdDev = Number(Math.sqrt(variance).toFixed(4));
+
+        // Filter if requested
+        let filtered = null;
+        if (threshold !== undefined && threshold !== null) {
+          const t = Number(threshold);
+          switch (filterMode) {
+            case 'lt': filtered = nums.filter((n) => n < t); break;
+            case 'lte': filtered = nums.filter((n) => n <= t); break;
+            case 'eq': filtered = nums.filter((n) => n === t); break;
+            case 'gte': filtered = nums.filter((n) => n >= t); break;
+            case 'gt':
+            default:
+              filtered = nums.filter((n) => n > t);
+              break;
+          }
+        }
+
+        const result = {
+          count,
+          sum,
+          mean,
+          median,
+          min,
+          max,
+          range,
+          variance,
+          standardDeviation: stdDev,
+          sortedAsc,
+          sortedDesc,
+        };
+
+        if (filtered !== null) {
+          result.filtered = filtered;
+          result.filterCondition = `${filterMode} ${threshold}`;
+          result.filteredCount = filtered.length;
+        }
+
+        return {
+          status: 'success',
+          operation,
+          summary: result,
+        };
+      } catch (err) {
+        return {
+          status: 'error',
+          error: `Data analysis error: ${err.message}`,
         };
       }
     },
@@ -151,50 +266,97 @@ export const TOOLS_REGISTRY = [
     category: 'Live Environment',
     execute: async ({ city }) => {
       try {
-        if (!city) return { status: 'error', error: 'City name is required.' };
-        // Step 1: Geocoding via Open-Meteo (100% free, no API key needed)
-        const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city.trim())}&count=1&format=json`;
-        const geoRes = await fetch(geoUrl);
-        if (!geoRes.ok) throw new Error('Geocoding service unavailable');
-        const geoData = await geoRes.json();
-        const location = geoData?.results?.[0];
+        if (!city || typeof city !== 'string') return { status: 'error', error: 'City name is required.' };
+        
+        // Clean city input: remove prefixes and trailing extra words
+        let rawCity = city.trim();
+        rawCity = rawCity.replace(/^(?:weather\s+(?:in|for|at|of)?|current\s+weather\s+(?:in|for|at|of)?|temperature\s+(?:in|for|at|of)?|forecast\s+(?:in|for|at|of)?)\s*/i, '');
+        rawCity = rawCity.replace(/[\?,\.!]+$/g, '').trim();
 
-        if (!location) {
-          return { status: 'error', error: `Location "${city}" could not be resolved.` };
+        // Step 1: Geocoding via Open-Meteo with fallback cleaning
+        const attemptGeocode = async (name) => {
+          const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&format=json`;
+          const geoRes = await fetch(geoUrl);
+          if (!geoRes.ok) return null;
+          const geoData = await geoRes.json();
+          return geoData?.results?.[0] || null;
+        };
+
+        // Try exact name first
+        let location = await attemptGeocode(rawCity);
+
+        // If not found and city has comma (e.g. "New York, USA"), try base city name
+        if (!location && rawCity.includes(',')) {
+          const baseCity = rawCity.split(',')[0].trim();
+          location = await attemptGeocode(baseCity);
         }
 
-        // Step 2: Live Weather via Open-Meteo
-        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current_weather=true`;
+        // If still not found and has multiple words, try first 2 words or strip country hints
+        if (!location) {
+          const stripped = rawCity.replace(/\b(usa|uk|japan|india|france|germany|canada|australia|city|right now|today|tomorrow)\b/gi, '').trim();
+          if (stripped && stripped !== rawCity) {
+            location = await attemptGeocode(stripped);
+          }
+        }
+
+        if (!location) {
+          return { status: 'error', error: `Location "${city}" could not be resolved. Please verify the city spelling.` };
+        }
+
+        // Step 2: Live Weather via Open-Meteo with comprehensive modern parameters
+        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&current_weather=true`;
         const weatherRes = await fetch(weatherUrl);
         if (!weatherRes.ok) throw new Error('Weather forecast service unavailable');
         const weatherData = await weatherRes.json();
-        const current = weatherData.current_weather;
+        const current = weatherData.current || weatherData.current_weather || {};
 
+        const weatherCode = current.weather_code ?? current.weathercode ?? 0;
         const weatherCodes = {
           0: 'Clear sky ☀️',
           1: 'Mainly clear 🌤️',
           2: 'Partly cloudy ⛅',
           3: 'Overcast ☁️',
           45: 'Foggy 🌫️',
+          48: 'Depositing rime fog 🌫️',
           51: 'Light drizzle 🌦️',
+          53: 'Moderate drizzle 🌧️',
+          55: 'Dense drizzle 🌧️',
           61: 'Slight rain 🌧️',
+          63: 'Moderate rain 🌧️',
+          65: 'Heavy rain ⛈️',
           71: 'Slight snow 🌨️',
+          73: 'Moderate snow 🌨️',
+          75: 'Heavy snow ❄️',
+          80: 'Slight rain showers 🌦️',
+          81: 'Moderate rain showers 🌧️',
+          82: 'Violent rain showers ⛈️',
           95: 'Thunderstorm ⛈️',
+          96: 'Thunderstorm with hail ⛈️',
+          99: 'Severe thunderstorm ⛈️',
         };
 
-        const condition = weatherCodes[current.weathercode] || 'Fair';
+        const condition = weatherCodes[weatherCode] || 'Fair';
+        const tempC = current.temperature_2m ?? current.temperature ?? 0;
+        const apparentTempC = current.apparent_temperature ?? tempC;
+        const humidity = current.relative_humidity_2m ?? 'N/A';
+        const windSpeed = current.wind_speed_10m ?? current.windspeed ?? 0;
+        const precipitation = current.precipitation ?? 0;
 
         return {
           status: 'success',
           city: location.name,
-          country: location.country,
+          country: location.country || '',
           latitude: location.latitude,
           longitude: location.longitude,
-          temperatureC: current.temperature,
-          temperatureF: Number(((current.temperature * 9) / 5 + 32).toFixed(1)),
-          windSpeedKmH: current.windspeed,
+          temperatureC: tempC,
+          temperatureF: Number(((tempC * 9) / 5 + 32).toFixed(1)),
+          feelsLikeC: apparentTempC,
+          feelsLikeF: Number(((apparentTempC * 9) / 5 + 32).toFixed(1)),
+          humidityPercent: humidity,
+          precipitationMm: precipitation,
+          windSpeedKmH: windSpeed,
           condition,
-          time: current.time,
+          time: current.time || new Date().toISOString(),
         };
       } catch (err) {
         return {
@@ -230,8 +392,21 @@ export const TOOLS_REGISTRY = [
       };
 
       try {
+        // Provide built-in data science helpers: sum, avg, median, min, max
+        const helpers = `
+          const sum = (arr) => arr.reduce((a, b) => a + b, 0);
+          const avg = (arr) => arr.length ? sum(arr) / arr.length : 0;
+          const min = (arr) => Math.min(...arr);
+          const max = (arr) => Math.max(...arr);
+          const median = (arr) => {
+            const s = [...arr].sort((a, b) => a - b);
+            const m = Math.floor(s.length / 2);
+            return s.length % 2 !== 0 ? s[m] : (s[m - 1] + s[m]) / 2;
+          };
+        `;
         const runner = new Function('console', `
           "use strict";
+          ${helpers}
           try {
             ${code.includes('return') ? code : 'return (' + code + ')'}
           } catch(e) {
@@ -340,18 +515,58 @@ export const TOOLS_REGISTRY = [
     execute: async ({ timezone }) => {
       try {
         const now = new Date();
-        const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-        const formatted = new Intl.DateTimeFormat('en-US', {
-          timeZone: tz,
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          timeZoneName: 'short',
-        }).format(now);
+        const cityTzMap = {
+          tokyo: 'Asia/Tokyo',
+          london: 'Europe/London',
+          'new york': 'America/New_York',
+          newyork: 'America/New_York',
+          paris: 'Europe/Paris',
+          sydney: 'Australia/Sydney',
+          delhi: 'Asia/Kolkata',
+          mumbai: 'Asia/Kolkata',
+          hyderabad: 'Asia/Kolkata',
+          bangalore: 'Asia/Kolkata',
+          kolkata: 'Asia/Kolkata',
+          dubai: 'Asia/Dubai',
+          singapore: 'Asia/Singapore',
+          berlin: 'Europe/Berlin',
+          toronto: 'America/Toronto',
+          chicago: 'America/Chicago',
+          'los angeles': 'America/Los_Angeles',
+        };
+
+        let tz = timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        if (cityTzMap[tz.toLowerCase()]) {
+          tz = cityTzMap[tz.toLowerCase()];
+        }
+
+        let formatted;
+        try {
+          formatted = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZoneName: 'short',
+          }).format(now);
+        } catch {
+          tz = 'UTC';
+          formatted = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'UTC',
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZoneName: 'short',
+          }).format(now);
+        }
 
         return {
           status: 'success',

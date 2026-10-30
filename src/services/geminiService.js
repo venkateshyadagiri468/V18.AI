@@ -6,7 +6,7 @@
  * 3. Autonomous Multi-Step ReAct Planning Engine (Fully functional local executor with real live APIs)
  */
 
-import { getGeminiToolDeclarations, executeToolCall, TOOLS_REGISTRY } from '../tools';
+import { getGeminiToolDeclarations, executeToolCall, TOOLS_REGISTRY } from '../tools/index.js';
 
 export const DEFAULT_SYSTEM_PROMPT = `You are V18.ai, an elite autonomous AI Agent equipped with real-world client tools.
 You operate strictly using the ReAct (Reasoning and Acting) loop:
@@ -96,7 +96,9 @@ async function runGeminiLiveAgent({
 
   contents.push({ role: 'user', parts: [{ text: prompt }] });
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // Normalize model name for Gemini API (if user kept default 'v18-react-autonomous-v2')
+  const activeModel = (model && model.startsWith('gemini-')) ? model : 'gemini-1.5-flash';
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
   const toolDeclarations = getGeminiToolDeclarations();
 
   let iterations = 0;
@@ -169,6 +171,7 @@ async function runGeminiLiveAgent({
     if (functionCalls.length > 0) {
       // Append the model's call to conversation history
       contents.push(candidate.content);
+      const functionResponseParts = [];
 
       for (const call of functionCalls) {
         const toolName = call.name;
@@ -194,27 +197,29 @@ async function runGeminiLiveAgent({
         };
         steps.push(stepRecord);
 
-        // Append functionResponse per Gemini REST v1beta spec
-        contents.push({
-          role: 'function',
-          parts: [
-            {
-              functionResponse: {
-                name: toolName,
-                response: {
-                  content: execution.result,
-                },
-              },
+        // Format functionResponse per Google Gemini REST v1beta specification
+        functionResponseParts.push({
+          functionResponse: {
+            name: toolName,
+            response: {
+              name: toolName,
+              content: execution.result,
             },
-          ],
-        });
-
-        onStep({
-          status: 'thinking',
-          statusText: `Synthesizing tool observations...`,
-          steps: [...steps],
+          },
         });
       }
+
+      // Append functionResponse turn with role 'user' per Gemini REST v1beta spec
+      contents.push({
+        role: 'user',
+        parts: functionResponseParts,
+      });
+
+      onStep({
+        status: 'thinking',
+        statusText: `Synthesizing tool observations...`,
+        steps: [...steps],
+      });
 
       // Continue the ReAct loop so model sees the result and can either call another tool or answer
       continue;
@@ -398,26 +403,115 @@ async function runAutonomousReActAgent({ prompt, history, onStep, signal }) {
   // Identify all required subtasks
   const plannedActions = [];
 
-  // 1. Weather detection (e.g. "weather in Tokyo", "weather in London and Paris")
-  const weatherCityMatches = prompt.match(/weather\s+(?:in|for|at)?\s*([a-zA-Z\s,]+?)(?:\s+(?:and|or|\?|,|\.|$))/gi);
-  if (weatherCityMatches) {
-    weatherCityMatches.forEach((m) => {
-      const city = m.replace(/weather\s+(?:in|for|at)?\s*/i, '').replace(/[\?,\.]/g, '').trim();
-      if (city && city.length > 1) {
-        plannedActions.push({ tool: 'get_weather', args: { city }, reason: `Fetch real-time weather & temperature for ${city}` });
+  // Helper: Extract cities for weather queries
+  const extractWeatherCities = (text) => {
+    const cities = [];
+    // Pattern 1: Multi-city "X and Y"
+    const andPattern = /(?:weather|temperature|forecast|rain|climate)\b.*?\b(?:in|for|at|of)\s+([A-Za-z\s,]+?)\s+(?:and|&)\s+([A-Za-z\s,]+?)(?:[\?,\.!]+|\s+(?:right now|today|tomorrow|currently)|$)/i;
+    const andM = text.match(andPattern);
+    if (andM) {
+      const c1 = andM[1].replace(/\b(?:in|for|at|of)\s+/gi, '').trim();
+      const c2 = andM[2].replace(/\b(?:in|for|at|of)\s+/gi, '').trim();
+      if (c1) cities.push(c1);
+      if (c2) cities.push(c2);
+      return cities;
+    }
+
+    // Pattern 2: Single city after preposition
+    const prepPattern = /(?:weather|temperature|forecast|climate|rain|snow|hot|cold)\b.*?\b(?:in|for|at|of)\s+([A-Za-z\s,]+?)(?:[\?,\.!]+|\s+(?:right now|today|tomorrow|this week|currently)|$)/i;
+    const prepM = text.match(prepPattern);
+    if (prepM) {
+      const raw = prepM[1].trim();
+      if (raw && !['the', 'my', 'our', 'a', 'an', 'now'].includes(raw.toLowerCase())) {
+        cities.push(raw);
+        return cities;
       }
-    });
-  } else if (/\b(weather|temperature|forecast|rain|climate)\b/i.test(prompt)) {
-    // Extract any city mention
-    const words = prompt.split(/\s+/);
-    const inIdx = words.findIndex((w) => ['in', 'for', 'at'].includes(w.toLowerCase()));
-    const city = inIdx !== -1 && words[inIdx + 1] ? words[inIdx + 1].replace(/[\?,\.]/g, '') : 'Tokyo';
-    plannedActions.push({ tool: 'get_weather', args: { city }, reason: `Fetch live atmospheric conditions for ${city}` });
+    }
+
+    // Pattern 3: Fallback any "in/for/at <Location>"
+    const fallbackM = text.match(/\b(?:in|for|at|of)\s+([A-Z][A-Za-z\s,]+?)(?:[\?,\.!]+|\s+(?:right now|today|tomorrow|currently)|$)/);
+    if (fallbackM) {
+      const raw = fallbackM[1].trim();
+      if (raw && !['the', 'my', 'our', 'a', 'an'].includes(raw.toLowerCase())) {
+        cities.push(raw);
+      }
+    }
+
+    return cities;
+  };
+
+  // 1. Weather detection
+  if (/\b(weather|temperature|forecast|rain|climate|humidity|wind)\b/i.test(prompt)) {
+    const detectedCities = extractWeatherCities(prompt);
+    if (detectedCities.length > 0) {
+      detectedCities.forEach((city) => {
+        plannedActions.push({
+          tool: 'get_weather',
+          args: { city },
+          reason: `Fetch real-time atmospheric conditions and temperature for ${city}`,
+        });
+      });
+    } else {
+      // Default to Tokyo with clear reasoning if no specific city was given
+      plannedActions.push({
+        tool: 'get_weather',
+        args: { city: 'Tokyo' },
+        reason: `Fetch live meteorological reference conditions for Tokyo (default)`,
+      });
+    }
   }
 
-  // 2. Math & Calculation detection
+  // 2. Data Analysis & Dataset detection
+  const arrayBracketMatch = prompt.match(/\[([0-9.,\s-]+)\]/);
+  const sequenceMatch = prompt.match(/\b(\d+(?:\.\d+)?(?:[\s,]+\d+(?:\.\d+)?){2,})\b/);
+  
+  if (arrayBracketMatch || sequenceMatch || /\b(data|dataset|dataset|statistics|stats|average|median|mean|std dev|standard deviation|variance|filter|sort array)\b/i.test(prompt)) {
+    let dataNums = [];
+    if (arrayBracketMatch) {
+      dataNums = arrayBracketMatch[1].split(/[\s,]+/).map(Number).filter((n) => !isNaN(n));
+    } else if (sequenceMatch) {
+      dataNums = sequenceMatch[1].split(/[\s,]+/).map(Number).filter((n) => !isNaN(n));
+    }
+
+    if (dataNums.length > 0) {
+      let operation = 'summary';
+      let threshold = null;
+      let filterMode = 'gt';
+
+      if (lower.includes('sort')) {
+        operation = (lower.includes('desc') || lower.includes('highest')) ? 'sort_desc' : 'sort_asc';
+      } else if (lower.includes('filter')) {
+        operation = 'filter';
+        const filterMatch = prompt.match(/(?:>|>=|<|<=|==|greater than|less than|more than|exceeding)\s*(\d+(?:\.\d+)?)/i);
+        if (filterMatch) {
+          threshold = Number(filterMatch[1]);
+          if (/less than|<|under/i.test(prompt)) filterMode = 'lt';
+        }
+      } else if (lower.includes('average') || lower.includes('mean')) {
+        operation = 'average';
+      } else if (lower.includes('median')) {
+        operation = 'median';
+      }
+
+      plannedActions.push({
+        tool: 'data_analyzer',
+        args: { data: dataNums, operation, threshold, filterMode },
+        reason: `Analyze numerical dataset (${dataNums.length} items): calculate descriptive statistics, mean, median, min, max, range, standard deviation, and sorting`,
+      });
+
+      // Also execute sandboxed script with user's actual data
+      const customCode = `const dataset = ${JSON.stringify(dataNums)};\nconst sumVal = sum(dataset);\nconst meanVal = avg(dataset);\nconst medVal = median(dataset);\nconst minVal = min(dataset);\nconst maxVal = max(dataset);\nreturn { count: dataset.length, sum: sumVal, average: Number(meanVal.toFixed(2)), median: medVal, min: minVal, max: maxVal };`;
+      plannedActions.push({
+        tool: 'execute_js',
+        args: { code: customCode },
+        reason: `Execute algorithmic data calculations in sandbox runner`,
+      });
+    }
+  }
+
+  // 3. Math & Calculation detection (standalone math expressions)
   const mathMatch = prompt.match(/(\d+[\s\d+\-*/().%^MathPIEabcrtdlqofsinw,]{2,}\d+)/);
-  if (/\b(calculate|sum|multiply|divide|interest|formula|sqrt|percent|tip|\b\d+\s*[\+\-\*\/]\s*\d+)\b/i.test(prompt) || mathMatch) {
+  if ((/\b(calculate|sum|multiply|divide|interest|formula|sqrt|percent|tip|\b\d+\s*[\+\-\*\/]\s*\d+)\b/i.test(prompt) || mathMatch) && plannedActions.every(a => a.tool !== 'data_analyzer')) {
     let expr = '';
     if (mathMatch) {
       expr = mathMatch[1].replace(/,/g, '').trim();
@@ -427,14 +521,14 @@ async function runAutonomousReActAgent({ prompt, history, onStep, signal }) {
     plannedActions.push({ tool: 'calculator', args: { expression: expr }, reason: `Evaluate mathematical expression "${expr}"` });
   }
 
-  // 3. Time & Date detection
+  // 4. Time & Date detection
   if (/\b(time|date|today|clock|timezone|now|hour|day of the week)\b/i.test(prompt)) {
     const tzMatch = prompt.match(/\b(?:in|for)\s+([A-Za-z_]+(?:\/[A-Za-z_]+)?)\b/i);
     const tz = tzMatch ? tzMatch[1] : 'UTC';
     plannedActions.push({ tool: 'get_time', args: { timezone: tz }, reason: `Resolve current real-world timestamp and timezone` });
   }
 
-  // 4. Memory detection
+  // 5. Memory detection
   if (/\b(remember|save to memory|store in memory|recall|memory)\b/i.test(prompt)) {
     if (lower.includes('store') || lower.includes('save') || lower.includes('remember')) {
       const parts = prompt.split(/(?:that|preference|note|as|:)/i);
@@ -445,16 +539,16 @@ async function runAutonomousReActAgent({ prompt, history, onStep, signal }) {
     }
   }
 
-  // 5. Code Execution detection
-  if (/\b(javascript|run js|run script|filter array|sort array|code snippet)\b/i.test(prompt)) {
+  // 6. Code Execution detection (when not already covered by data_analyzer)
+  if (/\b(javascript|run js|run script|code snippet)\b/i.test(prompt) && plannedActions.every(a => a.tool !== 'execute_js')) {
     const defaultCode = `const data = [12, 45, 68, 23, 89, 104, 33];\nconst filtered = data.filter(n => n > 30);\nconst average = filtered.reduce((a, b) => a + b, 0) / filtered.length;\nreturn { originalCount: data.length, filtered, average: Number(average.toFixed(2)) };`;
     plannedActions.push({ tool: 'execute_js', args: { code: defaultCode }, reason: `Execute algorithmic data transformation in sandbox` });
   }
 
-  // 6. Web Search detection (if no specific tool or if search keywords present)
-  if (plannedActions.length === 0 || /\b(search|who is|who was|what is|tell me about|explain|history|founder|born|invented|breakthrough)\b/i.test(prompt)) {
+  // 7. Web Search / Knowledge & Factual Data detection
+  if (plannedActions.length === 0 || /\b(search|who is|who was|what is|tell me about|explain|history|founder|born|invented|breakthrough|population|gdp|economy|facts)\b/i.test(prompt)) {
     const query = prompt
-      .replace(/search|web|for|who is|who was|what is|tell me about|explain/gi, '')
+      .replace(/search|web|for|who is|who was|what is|tell me about|explain|give me data on|data on/gi, '')
       .replace(/[\?,\.]/g, '')
       .trim() || prompt;
     plannedActions.unshift({ tool: 'web_search', args: { query }, reason: `Query live Wikipedia & encyclopedic knowledge index for "${query}"` });
@@ -527,18 +621,48 @@ async function runAutonomousReActAgent({ prompt, history, onStep, signal }) {
       return;
     }
 
-    if (step.toolName === 'web_search') {
+    if (step.toolName === 'data_analyzer') {
+      const s = res.summary || {};
+      finalAnswer += `### 📊 Statistical Data Analysis Report\n`;
+      finalAnswer += `| Metric | Calculated Value |\n`;
+      finalAnswer += `| :--- | :--- |\n`;
+      finalAnswer += `| **Sample Size (Count)** | \`${s.count ?? 'N/A'}\` |\n`;
+      finalAnswer += `| **Sum Total** | \`${s.sum ?? 'N/A'}\` |\n`;
+      finalAnswer += `| **Mean (Average)** | **\`${s.mean ?? 'N/A'}\`** |\n`;
+      finalAnswer += `| **Median** | **\`${s.median ?? 'N/A'}\`** |\n`;
+      finalAnswer += `| **Minimum / Maximum** | \`${s.min ?? 'N/A'}\` / \`${s.max ?? 'N/A'}\` |\n`;
+      finalAnswer += `| **Range (Spread)** | \`${s.range ?? 'N/A'}\` |\n`;
+      finalAnswer += `| **Standard Deviation (σ)** | \`${s.standardDeviation ?? 'N/A'}\` |\n`;
+      finalAnswer += `| **Variance (σ²)** | \`${s.variance ?? 'N/A'}\` |\n\n`;
+
+      if (s.sortedAsc) {
+        finalAnswer += `- **Sorted (Ascending):** \`[${s.sortedAsc.slice(0, 15).join(', ')}${s.sortedAsc.length > 15 ? '...' : ''}]\`\n`;
+      }
+      if (s.filtered) {
+        finalAnswer += `- **Filtered (${s.filterCondition || 'condition'}):** \`[${s.filtered.join(', ')}]\` *(matched ${s.filteredCount} items)*\n`;
+      }
+      finalAnswer += `\n`;
+    } else if (step.toolName === 'get_weather') {
+      finalAnswer += `### 🌤️ Live Weather: ${res.city || 'Location'}${res.country ? `, ${res.country}` : ''}\n`;
+      finalAnswer += `- **Condition:** ${res.condition || 'Fair'}\n`;
+      finalAnswer += `- **Temperature:** **${res.temperatureC ?? 'N/A'}°C** (${res.temperatureF ?? 'N/A'}°F)\n`;
+      if (res.feelsLikeC !== undefined) {
+        finalAnswer += `- **Feels Like:** **${res.feelsLikeC}°C** (${res.feelsLikeF}°F)\n`;
+      }
+      if (res.humidityPercent !== undefined && res.humidityPercent !== 'N/A') {
+        finalAnswer += `- **Relative Humidity:** **${res.humidityPercent}%**\n`;
+      }
+      if (res.precipitationMm !== undefined && res.precipitationMm > 0) {
+        finalAnswer += `- **Precipitation:** ${res.precipitationMm} mm\n`;
+      }
+      finalAnswer += `- **Wind Velocity:** ${res.windSpeedKmH ?? 'N/A'} km/h\n`;
+      finalAnswer += `- **Observation Time:** \`${res.time || new Date().toLocaleTimeString()}\` (Live satellite feed)\n\n`;
+    } else if (step.toolName === 'web_search') {
       finalAnswer += `### 🌐 Knowledge Report: ${res.title || step.args?.query || 'Live Search'}\n`;
       finalAnswer += `${res.extract || 'Information verified across semantic database.'}\n\n`;
       if (res.url) {
         finalAnswer += `*Source: [${res.source || 'Wikipedia'}](${res.url})*\n\n`;
       }
-    } else if (step.toolName === 'get_weather') {
-      finalAnswer += `### 🌤️ Live Weather: ${res.city || 'Location'}${res.country ? `, ${res.country}` : ''}\n`;
-      finalAnswer += `- **Condition:** ${res.condition || 'Fair'}\n`;
-      finalAnswer += `- **Temperature:** **${res.temperatureC ?? 'N/A'}°C** (${res.temperatureF ?? 'N/A'}°F)\n`;
-      finalAnswer += `- **Wind Velocity:** ${res.windSpeedKmH ?? 'N/A'} km/h\n`;
-      finalAnswer += `- **Report Time:** \`${res.time || new Date().toLocaleTimeString()}\` (Live satellite feed)\n\n`;
     } else if (step.toolName === 'calculator') {
       finalAnswer += `### 🧮 Mathematical Evaluation\n`;
       finalAnswer += `- **Expression:** \`${step.args?.expression || ''}\`\n`;
