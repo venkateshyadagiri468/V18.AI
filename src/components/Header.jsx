@@ -1,6 +1,6 @@
 import React from 'react';
-import { Bot, Settings, Trash2, Menu, Cpu, Zap, Plus, LogOut, User } from 'lucide-react';
-import { UserButton } from '@clerk/clerk-react';
+import { Bot, Settings, Trash2, Menu, Cpu, Zap, Plus, LogOut } from 'lucide-react';
+import { SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 
@@ -14,6 +14,7 @@ export default function Header({
   onNewSession,
   onToggleSidebar,
   isClerkActive = false,
+  _user = null,
   onSignOut,
 }) {
   const getStatusBadge = () => {
@@ -124,7 +125,7 @@ export default function Header({
           size="icon"
           onClick={onClearChat}
           title="Clear Conversation"
-          className="h-8 w-8 text-zinc-400 hover:text-zinc-100"
+          className="h-8 w-8 text-zinc-400 hover:text-zinc-100 hidden sm:inline-flex"
         >
           <Trash2 className="w-4 h-4" />
         </Button>
@@ -140,15 +141,30 @@ export default function Header({
         </Button>
 
         {/* User Account / Sign Out */}
-        <div className="ml-1 pl-1.5 border-l border-zinc-800 flex items-center">
+        <div className="ml-1 pl-1.5 border-l border-zinc-800 flex items-center min-w-[32px] justify-center flex-shrink-0">
           {isClerkActive ? (
-            <UserButton
-              appearance={{
-                elements: {
-                  userButtonAvatarBox: "w-7 h-7 ring-1 ring-white/20 hover:ring-white/50 transition-all",
-                }
-              }}
-            />
+            <>
+              <SignedIn>
+                <UserButton
+                  appearance={{
+                    elements: {
+                      userButtonAvatarBox: "w-7 h-7 ring-1 ring-white/20 hover:ring-white/50 transition-all",
+                    }
+                  }}
+                />
+              </SignedIn>
+              <SignedOut>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onSignOut}
+                  title="Guest Mode - Return to Sign In"
+                  className="h-8 w-8 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-850"
+                >
+                  <LogOut className="w-3.5 h-3.5 text-zinc-400" />
+                </Button>
+              </SignedOut>
+            </>
           ) : (
             <Button
               variant="ghost"

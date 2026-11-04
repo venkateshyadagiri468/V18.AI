@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SignedIn, SignedOut } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, AuthenticateWithRedirectCallback, useClerk, useUser } from '@clerk/clerk-react';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -27,7 +27,27 @@ function generateId() {
 }
 
 export default function App({ isClerkActive = false }) {
-  const [isPreviewAuthenticated, setIsPreviewAuthenticated] = useState(false);
+  const [isPreviewAuthenticated, setIsPreviewAuthenticated] = useState(() => {
+    try {
+      return sessionStorage.getItem('v18_guest_authenticated') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleEnterGuest = () => {
+    try {
+      sessionStorage.setItem('v18_guest_authenticated', 'true');
+    } catch {}
+    setIsPreviewAuthenticated(true);
+  };
+
+  const handleSignOutGuest = () => {
+    try {
+      sessionStorage.removeItem('v18_guest_authenticated');
+    } catch {}
+    setIsPreviewAuthenticated(false);
+  };
   // Configuration stored in localStorage
   const [config, setConfig] = useState(() => {
     try {
@@ -271,7 +291,149 @@ export default function App({ isClerkActive = false }) {
     setInput(suggestion);
   };
 
-  const renderWorkspace = () => (
+  const workspaceProps = {
+    isSidebarOpen,
+    setIsSidebarOpen,
+    sessions,
+    activeSessionId: activeSession?.id || activeSessionId,
+    setActiveSessionId,
+    handleNewSession,
+    handleToolClick,
+    agentState,
+    config,
+    hasApiKey: Boolean(config.apiKey?.trim()),
+    setIsSettingsOpen,
+    handleClearChat,
+    messages,
+    activeTask,
+    handleSend,
+    input,
+    setInput,
+    handleStop,
+    isSettingsOpen,
+    handleSaveConfig,
+  };
+
+  if (isClerkActive) {
+    const isSSOCallback = typeof window !== 'undefined' && (
+      window.location.pathname.startsWith('/sso-callback') ||
+      window.location.hash.includes('sso-callback')
+    );
+
+    if (isSSOCallback) {
+      return (
+        <div className="flex h-screen h-[100dvh] w-full flex-col items-center justify-center bg-black text-white gap-3 select-none">
+          <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+          <p className="text-zinc-400 text-xs">Completing Google authentication...</p>
+          <AuthenticateWithRedirectCallback 
+            signInFallbackRedirectUrl="/"
+            signUpFallbackRedirectUrl="/"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <SignedOut>
+          {isPreviewAuthenticated ? (
+            <WorkspaceView
+              {...workspaceProps}
+              isClerkActive={true}
+              user={null}
+              onSignOut={handleSignOutGuest}
+            />
+          ) : (
+            <V18CinematicAuth onEnterGuest={handleEnterGuest} isClerkActive={true} />
+          )}
+        </SignedOut>
+        <SignedIn>
+          <ClerkWorkspaceBridge
+            {...workspaceProps}
+            isClerkActive={true}
+            onResetGuestState={handleSignOutGuest}
+          />
+        </SignedIn>
+      </>
+    );
+  }
+
+  // Developer Preview Mode (when Clerk Publishable Key is not yet populated)
+  if (!isPreviewAuthenticated) {
+    return (
+      <V18CinematicAuth onEnterGuest={handleEnterGuest} isClerkActive={false} />
+    );
+  }
+
+  return (
+    <WorkspaceView
+      {...workspaceProps}
+      isClerkActive={false}
+      user={null}
+      onSignOut={handleSignOutGuest}
+    />
+  );
+}
+
+/**
+ * Bridge component mounted inside <SignedIn> to safely consume Clerk hooks
+ * and provide user profile and unified signOut to WorkspaceView.
+ */
+function ClerkWorkspaceBridge({ onResetGuestState, ...props }) {
+  const clerk = useClerk();
+  const { user } = useUser();
+
+  const handleSignOutClerk = async () => {
+    try {
+      sessionStorage.removeItem('v18_guest_authenticated');
+    } catch {}
+    onResetGuestState?.();
+    try {
+      await clerk.signOut({ redirectUrl: '/' });
+    } catch (e) {
+      console.warn('Clerk signOut error, redirecting:', e);
+      window.location.href = '/';
+    }
+  };
+
+  return (
+    <WorkspaceView
+      {...props}
+      user={user}
+      onSignOut={handleSignOutClerk}
+    />
+  );
+}
+
+/**
+ * Main Interactive Workspace View
+ */
+function WorkspaceView({
+  isSidebarOpen,
+  setIsSidebarOpen,
+  sessions,
+  activeSessionId,
+  setActiveSessionId,
+  handleNewSession,
+  handleToolClick,
+  agentState,
+  config,
+  hasApiKey,
+  setIsSettingsOpen,
+  handleClearChat,
+  messages,
+  activeTask,
+  handleSend,
+  input,
+  setInput,
+  handleStop,
+  isSettingsOpen,
+  handleSaveConfig,
+  isClerkActive = false,
+  user = null,
+  onSignOut,
+}) {
+  return (
     <div className="flex h-screen h-[100dvh] w-full max-w-[100vw] bg-zinc-950 text-zinc-100 overflow-hidden relative font-sans">
       <div className="absolute inset-0 bg-mesh pointer-events-none z-0" />
       <div className="absolute inset-0 grid-pattern pointer-events-none z-0" />
@@ -281,12 +443,13 @@ export default function App({ isClerkActive = false }) {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         sessions={sessions}
-        activeSessionId={activeSession?.id || activeSessionId}
+        activeSessionId={activeSessionId}
         onSelectSession={(id) => setActiveSessionId(id)}
         onNewSession={handleNewSession}
         onToolClick={handleToolClick}
         isClerkActive={isClerkActive}
-        onSignOut={() => setIsPreviewAuthenticated(false)}
+        user={user}
+        onSignOut={onSignOut}
       />
 
       {/* Main Workspace */}
@@ -295,13 +458,14 @@ export default function App({ isClerkActive = false }) {
           agentState={agentState}
           provider={config.provider}
           model={config.model}
-          hasApiKey={Boolean(config.apiKey?.trim())}
+          hasApiKey={hasApiKey}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onClearChat={handleClearChat}
           onNewSession={handleNewSession}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isClerkActive={isClerkActive}
-          onSignOut={() => setIsPreviewAuthenticated(false)}
+          user={user}
+          onSignOut={onSignOut}
         />
 
         <ChatArea
@@ -328,30 +492,4 @@ export default function App({ isClerkActive = false }) {
       />
     </div>
   );
-
-  if (isClerkActive) {
-    return (
-      <>
-        <SignedOut>
-          {isPreviewAuthenticated ? (
-            renderWorkspace()
-          ) : (
-            <V18CinematicAuth onEnterGuest={() => setIsPreviewAuthenticated(true)} />
-          )}
-        </SignedOut>
-        <SignedIn>
-          {renderWorkspace()}
-        </SignedIn>
-      </>
-    );
-  }
-
-  // Developer Preview Mode (when Clerk Publishable Key is not yet populated)
-  if (!isPreviewAuthenticated) {
-    return (
-      <V18CinematicAuth onEnterGuest={() => setIsPreviewAuthenticated(true)} />
-    );
-  }
-
-  return renderWorkspace();
 }

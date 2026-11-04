@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Component } from "react";
-import { SignIn, SignUp } from "@clerk/clerk-react";
+import { SignIn, SignUp, useSignIn } from "@clerk/clerk-react";
 import { v18ClerkAppearance } from "./v18ClerkAppearance";
 import bgImage from "../../assets/images/v18-cinematic-bg.jpg";
 import { ArrowLeft, CheckCircle2, Sparkles, ExternalLink, Key, X, AlertTriangle } from "lucide-react";
@@ -67,11 +67,30 @@ class ClerkErrorBoundary extends Component {
  */
 const DEFAULT_CLERK_PUBLISHABLE_KEY = "pk_test_YWRhcHRlZC12aXBlci04MjQuY2xlcmsuYWNjb3VudHMuZGV2JA";
 
-export default function V18CinematicAuth({ onEnterGuest }) {
+export default function V18CinematicAuth({ onEnterGuest, isClerkActive = true }) {
+  if (isClerkActive) {
+    return <ClerkConnectedAuth onEnterGuest={onEnterGuest} isClerkActive={true} />;
+  }
+  return <CinematicAuthCore onEnterGuest={onEnterGuest} isClerkActive={false} clerkSignIn={null} isClerkLoaded={false} />;
+}
+
+function ClerkConnectedAuth({ onEnterGuest, isClerkActive }) {
+  const { signIn, isLoaded } = useSignIn();
+  return (
+    <CinematicAuthCore
+      onEnterGuest={onEnterGuest}
+      isClerkActive={isClerkActive}
+      clerkSignIn={signIn}
+      isClerkLoaded={isLoaded}
+    />
+  );
+}
+
+function CinematicAuthCore({ onEnterGuest, _isClerkActive, clerkSignIn, _isClerkLoaded }) {
   const publishableKey = 
+    (typeof window !== "undefined" ? localStorage.getItem("v18_clerk_publishable_key") : null) ||
     import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || 
     import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-    (typeof window !== "undefined" ? localStorage.getItem("v18_clerk_publishable_key") : null) ||
     DEFAULT_CLERK_PUBLISHABLE_KEY;
 
   const isClerkConfigured = Boolean(
@@ -86,8 +105,9 @@ export default function V18CinematicAuth({ onEnterGuest }) {
   // Flow State: 'sign-in' | 'sign-up' | 'forgot-password'
   const [activeTab, setActiveTab] = useState(() => {
     if (typeof window !== "undefined") {
-      if (window.location.hash === "#sign-up") return "sign-up";
-      if (window.location.hash === "#forgot-password") return "forgot-password";
+      const hash = window.location.hash || "";
+      if (hash.includes("sign-up")) return "sign-up";
+      if (hash.includes("forgot-password")) return "forgot-password";
     }
     return "sign-in";
   });
@@ -106,19 +126,44 @@ export default function V18CinematicAuth({ onEnterGuest }) {
   const [modalProvider, setModalProvider] = useState("Google");
   const [customClerkKey, setCustomClerkKey] = useState("");
 
-  const handleSocialClick = (providerName) => {
+  const handleSocialClick = async (providerName) => {
     setModalProvider(providerName);
-    if (isClerkConfigured) {
-      // If Clerk is configured, switch directly to live Clerk SDK view
-      setPreferClerkSDK(true);
-      setStatusMessage({
-        type: "info",
-        text: `Switched to Live Clerk Authentication for ${providerName} sign-in.`,
-      });
-    } else {
-      // Show configuration modal to let user connect Clerk key or enter as Google guest
-      setShowKeyModal(true);
+    setStatusMessage(null);
+
+    if (providerName === "Google") {
+      if (isClerkConfigured && clerkSignIn) {
+        setIsLoading(true);
+        setStatusMessage({
+          type: "info",
+          text: "Connecting to Google Accounts for authentication...",
+        });
+        try {
+          await clerkSignIn.authenticateWithRedirect({
+            strategy: "oauth_google",
+            redirectUrl: `${window.location.origin}/sso-callback`,
+            redirectUrlComplete: `${window.location.origin}/`,
+          });
+          return;
+        } catch (err) {
+          console.error("Google sign-in redirect error:", err);
+          setIsLoading(false);
+          setStatusMessage({
+            type: "error",
+            text: err.message || "Failed to connect to Google. Please try again.",
+          });
+          return;
+        }
+      }
+
+      if (!isClerkConfigured) {
+        setShowKeyModal(true);
+      } else {
+        setPreferClerkSDK(true);
+      }
+      return;
     }
+
+    setShowKeyModal(true);
   };
 
   const handleSaveCustomKey = (e) => {
@@ -134,9 +179,9 @@ export default function V18CinematicAuth({ onEnterGuest }) {
   // Sync with browser hash changes
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash === "#sign-up") setActiveTab("sign-up");
-      else if (hash === "#forgot-password") setActiveTab("forgot-password");
+      const hash = window.location.hash || "";
+      if (hash.includes("sign-up")) setActiveTab("sign-up");
+      else if (hash.includes("forgot-password")) setActiveTab("forgot-password");
       else setActiveTab("sign-in");
     };
     window.addEventListener("hashchange", handleHashChange);
@@ -299,17 +344,6 @@ export default function V18CinematicAuth({ onEnterGuest }) {
                       </svg>
                       Continue with Google
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSocialClick("GitHub")}
-                      className="w-full h-11 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/10 rounded-xl px-4 flex items-center justify-center gap-3 text-sm font-medium text-zinc-200 transition-all duration-150"
-                    >
-                      <svg className="w-4 h-4 fill-current text-white" viewBox="0 0 24 24">
-                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                      </svg>
-                      Continue with GitHub
-                    </button>
                   </div>
 
                   {/* Divider */}
@@ -408,29 +442,19 @@ export default function V18CinematicAuth({ onEnterGuest }) {
                   </p>
 
                   {/* Social Sign Up */}
-                  <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="space-y-2.5 mb-4">
                     <button
                       type="button"
                       onClick={() => handleSocialClick("Google")}
-                      className="h-10 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 rounded-xl px-2 flex items-center justify-center gap-2 text-xs font-medium text-zinc-200 transition-all"
+                      className="w-full h-11 bg-white/[0.05] hover:bg-white/[0.09] active:bg-white/[0.12] border border-white/10 rounded-xl px-4 flex items-center justify-center gap-3 text-sm font-medium text-zinc-200 transition-all duration-150"
                     >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" viewBox="0 0 24 24">
                         <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
                         <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z" />
                         <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z" />
                         <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 16c1.8 3.7 5.6 7 10.1 7z" />
                       </svg>
-                      Google
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSocialClick("GitHub")}
-                      className="h-10 bg-white/[0.05] hover:bg-white/[0.09] border border-white/10 rounded-xl px-2 flex items-center justify-center gap-2 text-xs font-medium text-zinc-200 transition-all"
-                    >
-                      <svg className="w-3.5 h-3.5 fill-current text-white" viewBox="0 0 24 24">
-                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-                      </svg>
-                      GitHub
+                      Continue with Google
                     </button>
                   </div>
 
@@ -581,9 +605,17 @@ export default function V18CinematicAuth({ onEnterGuest }) {
 
               {/* Status Feedback Toast */}
               {statusMessage && (
-                <div className="mt-4 p-2.5 rounded-xl bg-white/[0.06] border border-white/15 flex items-start gap-2 text-xs animate-fadeIn">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <span className="text-zinc-200">{statusMessage.text}</span>
+                <div className={`mt-4 p-2.5 rounded-xl border flex items-start gap-2 text-xs animate-fadeIn ${
+                  statusMessage.type === 'error'
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                    : 'bg-white/[0.06] border-white/15 text-zinc-200'
+                }`}>
+                  {statusMessage.type === 'error' ? (
+                    <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  )}
+                  <span>{statusMessage.text}</span>
                 </div>
               )}
             </div>
